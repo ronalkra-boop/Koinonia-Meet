@@ -1,0 +1,11 @@
+{
+  "name": "Koinonía Meet - Videollamadas de la Iglesia",
+  "description": "Plataforma de videoconferencias eclesiales en tiempo real tipo Google Meet y Zoom con videollamadas, audio, pantalla compartida, versículos bíblicos y peticiones de oración.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture",
+    "clipboard-write"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
