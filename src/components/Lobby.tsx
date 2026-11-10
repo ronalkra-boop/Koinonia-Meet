@@ -21,6 +21,9 @@ import {
   Crown,
   MessageCircle,
   Camera,
+  Lock,
+  KeyRound,
+  X,
 } from 'lucide-react';
 import { getPublicMeetingUrl } from '../utils/urlHelper';
 
@@ -37,8 +40,17 @@ interface LobbyProps {
   }) => void;
 }
 
+const DEFAULT_PASTOR_PIN = '7777';
+
 export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = false, onJoin }) => {
-  const [isAdmin, setIsAdmin] = useState(initialIsAdmin);
+  // Solo se considera admin si el dispositivo ya fue verificado o si introdujo el PIN pastoral
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
+    return localStorage.getItem('koinonia_admin_auth') === 'true';
+  });
+  const [isAdmin, setIsAdmin] = useState(() => {
+    const isAuth = localStorage.getItem('koinonia_admin_auth') === 'true';
+    return !!(initialIsAdmin && isAuth);
+  });
   const [roomId, setRoomId] = useState(initialRoomId || 'culto-general');
   const [roomName, setRoomName] = useState(() => {
     const matched = PRESET_ROOMS.find((r) => r.id === (initialRoomId || 'culto-general'));
@@ -48,9 +60,19 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
   const [displayName, setDisplayName] = useState(() => {
     const saved = localStorage.getItem('koinonia_username');
     if (saved) return saved;
-    return initialIsAdmin ? 'Pastor / Administrador' : '';
+    const isAuth = localStorage.getItem('koinonia_admin_auth') === 'true';
+    return initialIsAdmin && isAuth ? 'Pastor / Administrador' : '';
   });
-  const [role, setRole] = useState<UserRole>(initialIsAdmin ? 'pastor' : 'member');
+  const [role, setRole] = useState<UserRole>(() => {
+    const isAuth = localStorage.getItem('koinonia_admin_auth') === 'true';
+    return initialIsAdmin && isAuth ? 'pastor' : 'member';
+  });
+
+  // Modal de PIN para anfitrión / pastor
+  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [audioMeter, setAudioMeter] = useState(0);
@@ -70,15 +92,55 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
   };
 
   const handleToggleAdmin = () => {
-    const nextState = !isAdmin;
-    setIsAdmin(nextState);
-    if (nextState) {
+    if (isAdmin) {
+      setIsAdmin(false);
+      setRole('member');
+    } else {
+      if (isAdminAuthenticated) {
+        setIsAdmin(true);
+        setRole('pastor');
+        if (!displayName || displayName === 'Hermano(a)') {
+          setDisplayName('Pastor / Administrador');
+        }
+      } else {
+        setEnteredPin('');
+        setPinError(null);
+        setShowAdminPinModal(true);
+      }
+    }
+  };
+
+  const handleSelectRole = (selectedRole: UserRole) => {
+    if (selectedRole === 'pastor' || selectedRole === 'leader') {
+      if (isAdminAuthenticated) {
+        setRole(selectedRole);
+        setIsAdmin(true);
+      } else {
+        setEnteredPin('');
+        setPinError(null);
+        setShowAdminPinModal(true);
+      }
+    } else {
+      setRole(selectedRole);
+      setIsAdmin(false);
+    }
+  };
+
+  const handleVerifyPin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const storedPin = localStorage.getItem('koinonia_pastor_pin') || DEFAULT_PASTOR_PIN;
+    if (enteredPin.trim() === storedPin) {
+      localStorage.setItem('koinonia_admin_auth', 'true');
+      setIsAdminAuthenticated(true);
+      setIsAdmin(true);
       setRole('pastor');
       if (!displayName || displayName === 'Hermano(a)') {
         setDisplayName('Pastor / Administrador');
       }
+      setShowAdminPinModal(false);
+      setPinError(null);
     } else {
-      setRole('member');
+      setPinError('PIN incorrecto. Los hermanos e invitados deben ingresar como Hermano(a).');
     }
   };
 
@@ -346,6 +408,86 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950/80 text-slate-100 flex flex-col justify-between p-4 md:p-8">
+      {/* Modal de Validación de PIN Pastoral / Administrador */}
+      {showAdminPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm bg-slate-900 border border-amber-500/50 rounded-3xl p-6 shadow-2xl text-slate-100 relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdminPinModal(false);
+                setPinError(null);
+              }}
+              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <Crown className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white font-serif">Acceso de Pastor / Anfitrión</h3>
+                <p className="text-xs text-slate-400">Moderación y control de la llamada</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleVerifyPin} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Ingresa el PIN de Administrador:
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    maxLength={10}
+                    autoFocus
+                    placeholder="PIN pastoral (Ej. 7777)"
+                    value={enteredPin}
+                    onChange={(e) => {
+                      setEnteredPin(e.target.value);
+                      if (pinError) setPinError(null);
+                    }}
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-center text-white font-mono tracking-widest focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                {pinError && (
+                  <p className="mt-2 text-[11px] text-red-400 leading-snug">
+                    {pinError}
+                  </p>
+                )}
+                <p className="mt-2 text-[10px] text-slate-500">
+                  * PIN predeterminado: <strong className="text-amber-400 font-mono">7777</strong>. Los hermanos e invitados no necesitan PIN y deben ingresar con el rol Hermano(a).
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminPinModal(false);
+                    setPinError(null);
+                    setRole('member');
+                    setIsAdmin(false);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Entrar como Hermano
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs transition-colors shadow-md cursor-pointer"
+                >
+                  Desbloquear
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Diálogo / Modal en Español para Solicitud de Permisos o Ayuda */}
       {permissionState === 'denied' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
@@ -623,18 +765,20 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                 {(['member', 'pastor', 'leader', 'musician', 'guest'] as UserRole[]).map((r) => {
                   const info = ROLE_LABELS[r];
                   const isSelected = role === r;
+                  const isRestricted = (r === 'pastor' || r === 'leader') && !isAdminAuthenticated;
                   return (
                     <button
                       key={r}
                       type="button"
-                      onClick={() => setRole(r)}
-                      className={`px-3 py-2 rounded-xl text-xs font-medium border text-left transition-all ${
+                      onClick={() => handleSelectRole(r)}
+                      className={`px-3 py-2 rounded-xl text-xs font-medium border text-left transition-all flex items-center justify-between cursor-pointer ${
                         isSelected
                           ? `${info.bg} ${info.color} ring-1 ring-amber-400/50 shadow-sm`
                           : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      {info.label}
+                      <span className="truncate">{info.label}</span>
+                      {isRestricted && <Lock className="w-3 h-3 text-amber-400/70 ml-1 shrink-0" />}
                     </button>
                   );
                 })}

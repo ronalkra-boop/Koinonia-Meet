@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Mic, Video, Check, Globe, Shield, Sparkles, ExternalLink, RotateCcw } from 'lucide-react';
+import { X, Mic, Video, Check, Globe, Shield, Sparkles, ExternalLink, RotateCcw, Crown, Lock } from 'lucide-react';
 
 interface DeviceSettingsModalProps {
   onClose: () => void;
@@ -14,11 +14,17 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   selectedVideoDeviceId,
   onDeviceChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'devices' | 'turn'>('devices');
+  const [activeTab, setActiveTab] = useState<'devices' | 'turn' | 'security'>('devices');
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioId, setAudioId] = useState(selectedAudioDeviceId || '');
   const [videoId, setVideoId] = useState(selectedVideoDeviceId || '');
+
+  // Pastor PIN settings
+  const [pastorPin, setPastorPin] = useState(() => {
+    return localStorage.getItem('koinonia_pastor_pin') || '7777';
+  });
+  const [pinSaved, setPinSaved] = useState(false);
 
   // TURN 4G settings
   const [turnUrls, setTurnUrls] = useState('');
@@ -146,7 +152,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
             }`}
           >
             <Video className="w-4 h-4" />
-            <span>Cámara y Micrófono</span>
+            <span>Cámara y Mic</span>
           </button>
           <button
             type="button"
@@ -158,7 +164,19 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
             }`}
           >
             <Globe className="w-4 h-4" />
-            <span>Conectividad 4G (TURN)</span>
+            <span>4G (TURN)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`pb-2.5 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all ${
+              activeTab === 'security'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Lock className="w-4 h-4" />
+            <span>PIN de Anfitrión</span>
           </button>
         </div>
 
@@ -242,11 +260,11 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
 
             <div className="text-[11px] text-slate-300 bg-slate-950/80 border border-slate-800 p-3 rounded-xl flex items-center justify-between">
               <div>
-                <strong className="text-white block">Opción 100% gratuita recomendada: Metered.ca</strong>
-                <span className="text-slate-400">Ofrece 50 GB de tráfico TURN gratis cada mes sin tarjeta.</span>
+                <strong className="text-white block">Opción recomendada: Metered Video (Plan gratuito)</strong>
+                <span className="text-slate-400">Proporciona servidores TURN de alta velocidad para conexiones móviles 4G/5G instantáneas.</span>
               </div>
               <a
-                href="https://www.metered.ca/tools/openrelay/"
+                href="https://dashboard.metered.ca/signup"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] transition-colors"
@@ -321,6 +339,71 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
               >
                 <Check className="w-4 h-4" />
                 <span>Guardar Servidor TURN para 4G</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'security' && (
+          <div className="space-y-4 mb-5">
+            <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-2xl text-xs text-amber-200 leading-relaxed">
+              <p className="flex items-center gap-1.5 font-semibold text-white mb-1">
+                <Crown className="w-4 h-4 text-amber-400" />
+                <span>Control de Moderación y Privilegios</span>
+              </p>
+              <span>
+                Este PIN protege la sala para que los hermanos e invitados que abran el enlace no puedan entrar como administradores ni silenciar a otros.
+              </span>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                PIN de Pastor / Anfitrión (predeterminado: 7777):
+              </label>
+              <input
+                type="text"
+                maxLength={8}
+                value={pastorPin}
+                onChange={(e) => setPastorPin(e.target.value)}
+                placeholder="7777"
+                className="w-full p-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-center text-white font-mono tracking-widest focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            {pinSaved && (
+              <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 justify-center">
+                <Check className="w-3.5 h-3.5" />
+                <span>¡PIN pastoral guardado exitosamente!</span>
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPastorPin('7777');
+                  localStorage.setItem('koinonia_pastor_pin', '7777');
+                  setPinSaved(true);
+                  setTimeout(() => setPinSaved(false), 2000);
+                }}
+                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restablecer a 7777</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cleaned = pastorPin.trim() || '7777';
+                  setPastorPin(cleaned);
+                  localStorage.setItem('koinonia_pastor_pin', cleaned);
+                  setPinSaved(true);
+                  setTimeout(() => setPinSaved(false), 2500);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Guardar Nuevo PIN</span>
               </button>
             </div>
           </div>

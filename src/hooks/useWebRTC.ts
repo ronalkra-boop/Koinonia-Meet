@@ -86,12 +86,14 @@ export function getIceServers(customServerIceServers?: RTCIceServer[]): RTCConfi
     { urls: 'stun:stun.l.google.com:19302' },
   ];
 
-  // Servidores combinados: TURN primero para que el candidato relay se recolecte de inmediato
+  // Servidores combinados: El servidor (/api/ice-servers) es la fuente principal.
+  // Los relays públicos antiguos solo se usan si el servidor no entregó ningún servidor,
+  // para evitar recolección lenta de candidatos en redes móviles.
   const combined = [
     ...userTurn,
     ...envTurn,
     ...serverProvided,
-    ...defaultTurnFallbacks,
+    ...(serverProvided.length === 0 ? defaultTurnFallbacks : []),
     ...primaryStuns,
   ];
 
@@ -509,6 +511,44 @@ export function useWebRTC({
       let iceRestartCount = 0;
       const MAX_ICE_RESTARTS = 3;
 
+      // Vigía de conexión inicial (solo para el iniciador): si tras 16s no se ha conectado,
+      // realiza un reinicio seguro para evitar que la llamada se quede congelada indefinidamente.
+      let connectWatchdog: ReturnType<typeof setTimeout> | null = null;
+      let watchdogRetries = 0;
+      const MAX_WATCHDOG_RETRIES = 2;
+      const CONNECT_TIMEOUT_MS = 16000;
+
+      const clearConnectWatchdog = () => {
+        if (connectWatchdog) {
+          clearTimeout(connectWatchdog);
+          connectWatchdog = null;
+        }
+      };
+
+      const armConnectWatchdog = () => {
+        if (!isInitiator) return;
+        clearConnectWatchdog();
+        connectWatchdog = setTimeout(() => {
+          const st = pc.iceConnectionState;
+          if (st === 'connected' || st === 'completed' || st === 'closed' || pc.connectionState === 'closed') {
+            return;
+          }
+          if (watchdogRetries >= MAX_WATCHDOG_RETRIES) {
+            console.warn(`[ICE ${remotePeerId}] Sin conexión tras ${MAX_WATCHDOG_RETRIES} reintentos vigía.`);
+            return;
+          }
+          if (pc.signalingState !== 'stable') {
+            console.log(`[ICE ${remotePeerId}] Watchdog en espera (signalingState: ${pc.signalingState})`);
+            armConnectWatchdog();
+            return;
+          }
+          watchdogRetries++;
+          console.warn(`[ICE ${remotePeerId}] Sin conexión tras 16s (estado ${st}). Reintentando conexión ${watchdogRetries}/${MAX_WATCHDOG_RETRIES}...`);
+          sendIceRestart(pc, remotePeerId);
+          armConnectWatchdog();
+        }, CONNECT_TIMEOUT_MS);
+      };
+
       pc.oniceconnectionstatechange = () => {
         const st = pc.iceConnectionState;
         console.log(`[ICE ${remotePeerId}] iceConnectionState: ${st} @${ts()}`);
@@ -519,6 +559,9 @@ export function useWebRTC({
 
         if (st === 'connected' || st === 'completed') {
           iceRestartCount = 0; // reset al conectar con éxito
+          clearConnectWatchdog();
+        } else if (st === 'closed') {
+          clearConnectWatchdog();
         }
 
         if (!isInitiator) return;
@@ -611,6 +654,7 @@ export function useWebRTC({
                 sdp: pc.localDescription?.sdp,
               },
             });
+            armConnectWatchdog();
           })
           .catch((err) => console.error(`Error creating offer for ${remotePeerId}:`, err));
       }

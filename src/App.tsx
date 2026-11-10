@@ -38,9 +38,10 @@ export default function App() {
   }, []);
 
   const handleJoin = (config: ActiveMeetingConfig) => {
-    // Update browser URL query param cleanly without reloading
+    // Update browser URL query param cleanly without reloading; ensure admin param is NEVER in the shareable URL
     const url = new URL(window.location.href);
     url.searchParams.set('room', config.roomId);
+    url.searchParams.delete('admin');
     window.history.pushState({}, '', url.toString());
 
     setMeetingConfig(config);

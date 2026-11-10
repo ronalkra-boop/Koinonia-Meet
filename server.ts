@@ -91,46 +91,132 @@ function loadSavedTurnConfig(): any[] {
 
 let activeTurnConfig: any[] = loadSavedTurnConfig();
 
-function getFullIceServers() {
-  const defaultStun = [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ];
+// ---------------------------------------------------------------------------
+// ICE / TURN
+// ---------------------------------------------------------------------------
+// Las redes móviles (4G/5G) casi siempre están detrás de CGNAT / NAT simétrico.
+// Fuentes de TURN en orden de preferencia:
+//   1. Metered API (METERED_APP_NAME + METERED_API_KEY en variables de entorno)
+//   2. Variables de entorno estándar (TURN_URL, TURN_USERNAME, TURN_CREDENTIAL)
+//   3. Configuración guardada desde los ajustes de la app (/api/turn-config)
+// Si no hay NINGUNO configurado, se usa el relay público antiguo solo como último recurso.
 
-  const envTurnUrl = process.env.VITE_TURN_URL || process.env.TURN_URL;
-  const envTurnUser = process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME;
-  const envTurnCred = process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL;
+type IceServer = { urls: string | string[]; username?: string; credential?: string };
 
-  const envTurn = envTurnUrl
-    ? [
-        {
-          urls: envTurnUrl.split(','),
-          username: envTurnUser,
-          credential: envTurnCred,
-        },
-      ]
-    : [];
+function cleanMeteredAppName(name: string): string {
+  if (!name) return '';
+  // Elimina prefijo https:// o http:// si el usuario pegó la URL completa
+  let cleaned = name.replace(/^https?:\/\//i, '');
+  // Elimina sufijo .metered.live o rutas si pegó el dominio completo
+  cleaned = cleaned.replace(/\.metered\.live.*$/i, '').trim();
+  // Convierte a minúsculas, reemplaza espacios por guiones y remueve caracteres no válidos para subdominios DNS
+  cleaned = cleaned.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '');
+  return cleaned;
+}
 
+const RAW_METERED_APP_NAME = (process.env.METERED_APP_NAME || '').trim();
+const METERED_APP_NAME = cleanMeteredAppName(RAW_METERED_APP_NAME);
+const METERED_API_KEY = (process.env.METERED_API_KEY || '').trim();
+const METERED_TTL_MS = 30 * 60 * 1000; // 30 minutos
+let meteredCache: { servers: IceServer[]; fetchedAt: number } = { servers: [], fetchedAt: 0 };
+let meteredInFlight: Promise<IceServer[]> | null = null;
+let meteredLastFailureAt = 0;
+const METERED_RETRY_COOLDOWN_MS = 60 * 1000; // 1 minuto tras fallo
+
+async function refreshMeteredServers(): Promise<IceServer[]> {
+  if (!METERED_APP_NAME || !METERED_API_KEY) return [];
+  if (meteredInFlight) return meteredInFlight;
+
+  meteredInFlight = (async () => {
+    try {
+      if (METERED_API_KEY.includes(' ') || METERED_API_KEY.toLowerCase() === RAW_METERED_APP_NAME.toLowerCase()) {
+        console.warn(
+          `[TURN Metered] Nota: METERED_API_KEY="${METERED_API_KEY}" parece ser un nombre en lugar de una API Key. ` +
+          'En el panel de Metered, ve a "TURN Server" y copia la clave alfanumérica que aparece en "API Key".'
+        );
+      }
+
+      const targetUrl = new URL(`https://${METERED_APP_NAME}.metered.live/api/v1/turn/credentials`);
+      targetUrl.searchParams.set('apiKey', METERED_API_KEY);
+
+      const res = await fetch(targetUrl.toString(), { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          throw new Error(
+            `HTTP ${res.status}: Verifica que la app '${METERED_APP_NAME}' exista en Metered y que la API Key sea correcta (Dashboard > TURN Server > API Key).`
+          );
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) throw new Error('Respuesta de Metered vacía o inválida');
+      meteredCache = { servers: data as IceServer[], fetchedAt: Date.now() };
+      meteredLastFailureAt = 0;
+      console.log(`[TURN Metered] Credenciales actualizadas exitosamente (${data.length} servidores ICE para '${METERED_APP_NAME}')`);
+      return meteredCache.servers;
+    } catch (e) {
+      meteredLastFailureAt = Date.now();
+      console.error('[TURN Metered] No se pudieron obtener credenciales:', (e as Error).message);
+      return meteredCache.servers;
+    } finally {
+      meteredInFlight = null;
+    }
+  })();
+
+  return meteredInFlight;
+}
+
+function getMeteredServersCached(): IceServer[] {
+  if (!METERED_APP_NAME || !METERED_API_KEY) return [];
+  const fresh = meteredCache.servers.length > 0 && Date.now() - meteredCache.fetchedAt < METERED_TTL_MS;
+  if (!fresh && (!meteredLastFailureAt || Date.now() - meteredLastFailureAt > METERED_RETRY_COOLDOWN_MS)) {
+    // Refresco en segundo plano sin bloquear el ingreso de los participantes
+    refreshMeteredServers().catch(() => {});
+  }
+  return meteredCache.servers;
+}
+
+// Precalentar credenciales al arrancar el servidor
+if (METERED_APP_NAME && METERED_API_KEY) {
+  refreshMeteredServers().catch(() => {});
+  setInterval(refreshMeteredServers, METERED_TTL_MS).unref();
+}
+
+function getEnvTurn(): IceServer[] {
+  const url = process.env.VITE_TURN_URL || process.env.TURN_URL;
+  if (!url) return [];
   return [
-    ...activeTurnConfig,
-    ...envTurn,
-    // Prioridad 1: TURN Relay sobre TCP 443 (atraviesa CGNAT móvil de inmediato sin tiempos de espera)
     {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: url.split(',').map((u) => u.trim()).filter(Boolean),
+      username: process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME,
+      credential: process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL,
     },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    ...defaultStun,
   ];
+}
+
+const LEGACY_PUBLIC_TURN: IceServer[] = [
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+];
+
+function getFullIceServers(): IceServer[] {
+  const stun: IceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const metered = getMeteredServersCached();
+  const envTurn = getEnvTurn();
+  const configured = [...(activeTurnConfig as IceServer[]), ...envTurn, ...metered];
+
+  if (configured.length === 0) {
+    return [...LEGACY_PUBLIC_TURN, ...stun];
+  }
+
+  // Metered ya incluye servidores STUN de alta velocidad; añadimos el de Google solo si falta
+  const hasStun = configured.some((s) => (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => u.startsWith('stun:')));
+  return hasStun ? configured : [...configured, ...stun];
+}
+
+function hasAnyConfiguredTurn(): boolean {
+  return activeTurnConfig.length > 0 || getEnvTurn().length > 0 || getMeteredServersCached().length > 0;
 }
 
 // REST Endpoints
@@ -138,10 +224,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/ice-servers', (req, res) => {
+app.get('/api/ice-servers', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (METERED_APP_NAME && METERED_API_KEY && meteredCache.servers.length === 0) {
+    await refreshMeteredServers().catch(() => {});
+  }
   res.json({
     iceServers: getFullIceServers(),
-    hasCustomTurn: activeTurnConfig.length > 0 || !!process.env.VITE_TURN_URL,
+    hasCustomTurn: hasAnyConfiguredTurn(),
   });
 });
 
