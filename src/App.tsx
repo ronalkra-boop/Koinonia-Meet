@@ -21,21 +21,38 @@ interface ActiveMeetingConfig {
 export default function App() {
   const [meetingConfig, setMeetingConfig] = useState<ActiveMeetingConfig | null>(null);
   const [hasLeft, setHasLeft] = useState(false);
-  const [urlRoomId, setUrlRoomId] = useState<string>('');
-  const [isAdminUrl, setIsAdminUrl] = useState<boolean>(false);
+  const [urlRoomId, setUrlRoomId] = useState<string>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        return new URLSearchParams(window.location.search).get('room') || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [isAdminUrl, setIsAdminUrl] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        const admin = new URLSearchParams(window.location.search).get('admin');
+        return admin === 'true' || admin === '1';
+      }
+    } catch {}
+    return false;
+  });
 
   useEffect(() => {
-    // Check if a room was provided in URL params (?room=xxx)
-    const params = new URLSearchParams(window.location.search);
-    const room = params.get('room');
-    const admin = params.get('admin');
-    if (room) {
-      setUrlRoomId(room);
-    }
-    if (admin === 'true' || admin === '1') {
-      setIsAdminUrl(true);
-    }
-  }, []);
+    // Keep URL state synchronized if history changes or component mounts
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const room = params.get('room');
+      const admin = params.get('admin');
+      if (room && room !== urlRoomId) {
+        setUrlRoomId(room);
+      }
+      if (admin === 'true' || admin === '1') {
+        setIsAdminUrl(true);
+      }
+    } catch {}
+  }, [urlRoomId]);
 
   const handleJoin = (config: ActiveMeetingConfig) => {
     // Update browser URL query param cleanly without reloading; ensure admin param is NEVER in the shareable URL

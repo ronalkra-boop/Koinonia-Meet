@@ -1,8 +1,7 @@
 /**
  * Returns the shareable URL for a meeting room.
- * Uses the live dynamic browser origin where the app is currently running.
- * Converts internal developer sandbox URLs (ais-dev-*) into public shared URLs (ais-pre-*)
- * so guests, phones, and external browsers do NOT get stopped by Google's developer sign-in screen.
+ * Always preserves the exact live server origin where the call is running,
+ * ensuring all participants connect to the exact same signaling server and room.
  */
 export function getPublicMeetingUrl(roomId: string): string {
   let origin = '';
@@ -19,14 +18,22 @@ export function getPublicMeetingUrl(roomId: string): string {
     // Fallback if window access fails
   }
 
-  // If running inside the developer sandbox (ais-dev-), automatically switch to the public shared URL (ais-pre-)
-  // so external devices or browsers without the developer's Google login don't get redirected to accounts.google.com
-  if (origin.includes('ais-dev-')) {
-    origin = origin.replace('ais-dev-', 'ais-pre-');
-  }
-
   origin = origin.replace(/\/+$/, '');
   return `${origin}/?room=${encodeURIComponent(roomId)}`;
 }
 
-
+/**
+ * Detects whether the current window is on an AI Studio preview proxy URL (ais-dev-* or ais-pre-*),
+ * which Google gates behind an English cookie-check and Google account authentication wall.
+ */
+export function isPrivateAiStudioPreview(): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      const host = window.location.hostname;
+      return host.startsWith('ais-dev-') || host.startsWith('ais-pre-');
+    }
+  } catch {
+    // Ignore
+  }
+  return false;
+}

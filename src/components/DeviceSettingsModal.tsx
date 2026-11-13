@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Mic, Video, Check, Globe, Shield, Sparkles, ExternalLink, RotateCcw, Crown, Lock } from 'lucide-react';
+import { X, Mic, Video, Check, Globe, Shield, Sparkles, ExternalLink, RotateCcw, Crown, Lock, AlertCircle } from 'lucide-react';
 
 interface DeviceSettingsModalProps {
   onClose: () => void;
@@ -26,7 +26,16 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   });
   const [pinSaved, setPinSaved] = useState(false);
 
-  // TURN 4G settings
+  // Metered API settings
+  const [meteredAppName, setMeteredAppName] = useState('');
+  const [meteredApiKey, setMeteredApiKey] = useState('');
+  const [meteredLoading, setMeteredLoading] = useState(false);
+  const [meteredStatus, setMeteredStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [meteredMessage, setMeteredMessage] = useState<string | null>(null);
+  const [meteredConnected, setMeteredConnected] = useState(false);
+  const [isInvalidFormat, setIsInvalidFormat] = useState(false);
+
+  // Custom TURN 4G settings
   const [turnUrls, setTurnUrls] = useState('');
   const [turnUsername, setTurnUsername] = useState('');
   const [turnCredential, setTurnCredential] = useState('');
@@ -73,7 +82,59 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
         }
       } catch (e) {}
     })();
+
+    // Check Metered status from server
+    fetch('/api/metered-status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.appName) setMeteredAppName(data.appName);
+        setMeteredConnected(data.iceServersCount > 0 && !data.lastFailure);
+        setIsInvalidFormat(data.isInvalidFormat);
+        if (data.isInvalidFormat) {
+          setMeteredMessage('La API Key actual configurada parece ser un nombre en lugar de la clave secreta de Metered.');
+          setMeteredStatus('error');
+        }
+      })
+      .catch(() => {});
   }, [audioId, videoId]);
+
+  const handleSaveMetered = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!meteredAppName.trim() || !meteredApiKey.trim()) {
+      setMeteredStatus('error');
+      setMeteredMessage('Ingresa el nombre de la app y la API Key de Metered.');
+      return;
+    }
+
+    setMeteredLoading(true);
+    setMeteredMessage(null);
+    try {
+      const res = await fetch('/api/metered-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appName: meteredAppName.trim(),
+          apiKey: meteredApiKey.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMeteredStatus('success');
+        setMeteredMessage(data.message);
+        setMeteredConnected(true);
+        setIsInvalidFormat(false);
+      } else {
+        setMeteredStatus('error');
+        setMeteredMessage(data.message || 'Error al validar credenciales de Metered');
+        setMeteredConnected(false);
+      }
+    } catch {
+      setMeteredStatus('error');
+      setMeteredMessage('No se pudo conectar con el servidor.');
+    } finally {
+      setMeteredLoading(false);
+    }
+  };
 
   const handleSaveDevices = () => {
     onDeviceChange(audioId, videoId);
@@ -247,100 +308,177 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
         )}
 
         {activeTab === 'turn' && (
-          <div className="space-y-3.5 mb-5">
+          <div className="space-y-4 mb-5 max-h-[60vh] overflow-y-auto pr-1">
             <div className="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl text-xs text-indigo-200 leading-relaxed">
               <p className="flex items-center gap-1.5 font-semibold text-white mb-1">
                 <Shield className="w-4 h-4 text-indigo-400" />
-                <span>¿Por qué se necesita TURN en redes móviles 4G/LTE?</span>
+                <span>Servidor TURN para Redes Móviles (4G / 5G)</span>
               </p>
               <span>
-                En Wi-Fi la videollamada conecta directamente (P2P). Pero en redes 4G las operadoras móviles usan cortafuegos (CGNAT) que requieren un servidor de retransmisión (TURN).
+                En Wi-Fi la llamada conecta directo. Pero en redes celulares (4G/5G) las operadoras usan cortafuegos (CGNAT) que requieren un servidor de retransmisión (TURN) para enlazar el audio y video sin esperas.
               </span>
             </div>
 
-            <div className="text-[11px] text-slate-300 bg-slate-950/80 border border-slate-800 p-3 rounded-xl flex items-center justify-between">
-              <div>
-                <strong className="text-white block">Opción recomendada: Metered Video (Plan gratuito)</strong>
-                <span className="text-slate-400">Proporciona servidores TURN de alta velocidad para conexiones móviles 4G/5G instantáneas.</span>
-              </div>
-              <a
-                href="https://dashboard.metered.ca/signup"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] transition-colors"
-              >
-                <span>Crear gratis</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                URL del Servidor TURN (separados por coma si son varios):
-              </label>
-              <input
-                type="text"
-                placeholder="turn:a.relay.metered.ca:443?transport=tcp,turns:a.relay.metered.ca:443?transport=tcp"
-                value={turnUrls}
-                onChange={(e) => setTurnUrls(e.target.value)}
-                className="w-full p-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">
-                  Usuario TURN:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Usuario proporcionado"
-                  value={turnUsername}
-                  onChange={(e) => setTurnUsername(e.target.value)}
-                  className="w-full p-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                />
+            {/* SECCIÓN METERED API (RECOMENDADO) */}
+            <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${meteredConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <strong className="text-xs text-white">Opción A: Metered Video (Recomendada)</strong>
+                </div>
+                <a
+                  href="https://dashboard.metered.ca/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                >
+                  <span>Abrir Dashboard</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">
-                  Contraseña / Credencial:
-                </label>
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={turnCredential}
-                  onChange={(e) => setTurnCredential(e.target.value)}
-                  className="w-full p-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                />
+              {isInvalidFormat && (
+                <div className="p-2.5 bg-amber-500/15 border border-amber-500/30 rounded-xl text-xs text-amber-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <span className="leading-tight">
+                    <strong>API Key no válida:</strong> La clave actual guardada es el nombre de la app. Para obtener la API Key real: entra a Metered &gt; <strong>TURN Server</strong> &gt; copia la clave de <strong>"API Key"</strong> y pégala aquí abajo.
+                  </span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveMetered} className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                    Nombre de tu App en Metered:
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. koinonia-cdd (sin .metered.live)"
+                    value={meteredAppName}
+                    onChange={(e) => setMeteredAppName(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                    API Key de Metered:
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Pega aquí la API Key copiada de Metered"
+                    value={meteredApiKey}
+                    onChange={(e) => setMeteredApiKey(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    * En tu panel de Metered: ve a <strong>TURN Server</strong> y copia el valor alfanumérico del campo <strong>API Key</strong>.
+                  </p>
+                </div>
+
+                {meteredMessage && (
+                  <p className={`text-xs font-semibold flex items-center gap-1.5 p-2 rounded-xl border ${
+                    meteredStatus === 'success'
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-red-950/40 border-red-500/40 text-red-300'
+                  }`}>
+                    {meteredStatus === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                    <span>{meteredMessage}</span>
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={meteredLoading}
+                  className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                >
+                  {meteredLoading ? (
+                    <span>Verificando con Metered...</span>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>{meteredConnected ? 'Actualizar y Probar Metered' : 'Probar y Conectar con Metered'}</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* SECCIÓN MANUAL (OPCIONAL) */}
+            <details className="p-3 bg-slate-950/60 border border-slate-800 rounded-2xl text-xs text-slate-300">
+              <summary className="font-semibold text-slate-400 cursor-pointer hover:text-white transition-colors">
+                Opción B: Servidor TURN Manual (Coturn / Twilio / Cloudflare)
+              </summary>
+              <div className="pt-3 space-y-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                    URLs TURN (separadas por coma):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="turn:mi-servidor:3478,turns:mi-servidor:443?transport=tcp"
+                    value={turnUrls}
+                    onChange={(e) => setTurnUrls(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                      Usuario TURN:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Usuario"
+                      value={turnUsername}
+                      onChange={(e) => setTurnUsername(e.target.value)}
+                      className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                      Contraseña / Credencial:
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Contraseña"
+                      value={turnCredential}
+                      onChange={(e) => setTurnCredential(e.target.value)}
+                      className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {turnSaved && (
+                  <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 justify-center">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>¡Configuración TURN guardada exitosamente!</span>
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleResetTurn}
+                    className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Restablecer</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTurn}
+                    className="flex-1 py-2 px-3 rounded-xl bg-slate-700 hover:bg-slate-650 text-white font-medium text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Guardar Servidor Manual</span>
+                  </button>
+                </div>
               </div>
-            </div>
-
-            {turnSaved && (
-              <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 justify-center">
-                <Check className="w-3.5 h-3.5" />
-                <span>¡Configuración TURN guardada exitosamente!</span>
-              </p>
-            )}
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={handleResetTurn}
-                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                title="Restablecer a servidores predeterminados"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restablecer</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveTurn}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>Guardar Servidor TURN para 4G</span>
-              </button>
-            </div>
+            </details>
           </div>
         )}
 
@@ -358,14 +496,14 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-slate-300 block mb-1">
-                PIN de Pastor / Anfitrión (predeterminado: 7777):
+                PIN de Pastor / Anfitrión:
               </label>
               <input
                 type="text"
                 maxLength={8}
                 value={pastorPin}
                 onChange={(e) => setPastorPin(e.target.value)}
-                placeholder="7777"
+                placeholder="Ej. 1234"
                 className="w-full p-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-center text-white font-mono tracking-widest focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -389,7 +527,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                 className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restablecer a 7777</span>
+                <span>Restablecer predeterminado</span>
               </button>
               <button
                 type="button"

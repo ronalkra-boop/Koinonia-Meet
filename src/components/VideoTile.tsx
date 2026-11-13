@@ -104,13 +104,13 @@ export const VideoTile: React.FC<VideoTileProps> = ({
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl bg-slate-900 border transition-all duration-300 flex items-center justify-center select-none ${
+      className={`group relative overflow-hidden rounded-2xl bg-slate-900 border transition-all duration-300 flex items-center justify-center select-none w-full h-full min-h-0 ${
         isSpeaking
           ? 'border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.35)] ring-2 ring-emerald-500/50'
           : isPinned
           ? 'border-amber-500/80 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
           : 'border-slate-800/80 hover:border-slate-700'
-      } ${isPinned ? 'w-full h-full' : 'w-full h-full min-h-[220px]'}`}
+      }`}
     >
       {/* Dedicated audio element for remote participants so audio is decoupled from video rendering */}
       {!isLocal && !disableAudio && (
@@ -236,17 +236,24 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         </div>
       </div>
 
-      {/* Hover action overlay (Pin, Spotlight, Moderator mute) */}
-      <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
+      {/* Action overlay (Pin, Spotlight, Moderator mute) - visible on mobile touch or hover */}
+      <div
+        className={`absolute top-2.5 right-2.5 flex items-center gap-1.5 transition-opacity duration-200 z-20 ${
+          isPinned ? 'opacity-100' : 'opacity-80 sm:opacity-0 sm:group-hover:opacity-100'
+        }`}
+      >
         {onPinToggle && (
           <button
-            onClick={onPinToggle}
-            className={`p-2 rounded-xl backdrop-blur-md border transition-all ${
+            onClick={(e) => {
+              e.stopPropagation();
+              onPinToggle();
+            }}
+            className={`p-2 rounded-xl backdrop-blur-md border transition-all touch-manipulation shadow-md ${
               isPinned
                 ? 'bg-amber-500 text-slate-950 border-amber-400'
-                : 'bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-slate-700/80'
+                : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700/80 active:scale-95'
             }`}
-            title={isPinned ? 'Desfijar orador' : 'Fijar en pantalla principal'}
+            title={isPinned ? 'Desanclar pantalla' : 'Anclar / Fijar pantalla'}
           >
             {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
           </button>
@@ -255,8 +262,11 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         {/* Pastor / Leader can mute participant */}
         {canModerate && !isLocal && participant.isMicOn && onMuteParticipant && (
           <button
-            onClick={onMuteParticipant}
-            className="p-2 rounded-xl bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-600/60 backdrop-blur-md transition-all"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMuteParticipant();
+            }}
+            className="p-2 rounded-xl bg-red-950/90 hover:bg-red-900 text-red-200 border border-red-600/60 backdrop-blur-md transition-all touch-manipulation active:scale-95"
             title="Silenciar micrófono de este participante"
           >
             <ShieldAlert className="w-4 h-4" />

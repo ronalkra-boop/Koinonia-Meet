@@ -22,10 +22,13 @@ import {
   MessageCircle,
   Camera,
   Lock,
+  Unlock,
   KeyRound,
   X,
+  Settings,
 } from 'lucide-react';
-import { getPublicMeetingUrl } from '../utils/urlHelper';
+import { getPublicMeetingUrl, isPrivateAiStudioPreview } from '../utils/urlHelper';
+import { DeviceSettingsModal } from './DeviceSettingsModal';
 
 interface LobbyProps {
   initialRoomId?: string;
@@ -57,6 +60,14 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
     return matched ? matched.name : 'Culto General de la Iglesia';
   });
 
+  useEffect(() => {
+    if (initialRoomId) {
+      setRoomId(initialRoomId);
+      const matched = PRESET_ROOMS.find((r) => r.id === initialRoomId);
+      setRoomName(matched ? matched.name : initialRoomId);
+    }
+  }, [initialRoomId]);
+
   const [displayName, setDisplayName] = useState(() => {
     const saved = localStorage.getItem('koinonia_username');
     if (saved) return saved;
@@ -82,8 +93,10 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
   const [showPermissionHelp, setShowPermissionHelp] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [copiedLobbyLink, setCopiedLobbyLink] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const lobbyMeetingUrl = getPublicMeetingUrl(roomId);
+  const isPrivatePreview = isPrivateAiStudioPreview();
 
   const handleCopyLobbyLink = () => {
     navigator.clipboard.writeText(lobbyMeetingUrl);
@@ -107,6 +120,16 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
         setPinError(null);
         setShowAdminPinModal(true);
       }
+    }
+  };
+
+  const handleLockAdmin = () => {
+    localStorage.removeItem('koinonia_admin_auth');
+    setIsAdminAuthenticated(false);
+    setIsAdmin(false);
+    setRole('member');
+    if (displayName === 'Pastor / Administrador') {
+      setDisplayName('');
     }
   };
 
@@ -444,7 +467,7 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                     type="password"
                     maxLength={10}
                     autoFocus
-                    placeholder="PIN pastoral (Ej. 7777)"
+                    placeholder="PIN pastoral (Ej. 1234)"
                     value={enteredPin}
                     onChange={(e) => {
                       setEnteredPin(e.target.value);
@@ -459,7 +482,7 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                   </p>
                 )}
                 <p className="mt-2 text-[10px] text-slate-500">
-                  * PIN predeterminado: <strong className="text-amber-400 font-mono">7777</strong>. Los hermanos e invitados no necesitan PIN y deben ingresar con el rol Hermano(a).
+                  * Clave confidencial para pastores y moderadores. Los hermanos e invitados deben ingresar con el rol Hermano(a).
                 </p>
               </div>
 
@@ -486,6 +509,14 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal de Ajustes Generales, Dispositivos y Servidores TURN (4G/5G) */}
+      {showSettingsModal && (
+        <DeviceSettingsModal
+          onClose={() => setShowSettingsModal(false)}
+          onDeviceChange={() => {}}
+        />
       )}
 
       {/* Diálogo / Modal en Español para Solicitud de Permisos o Ayuda */}
@@ -563,9 +594,30 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
           </div>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Acceso seguro directo desde el navegador</span>
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 text-xs bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
+            {isAdminAuthenticated ? (
+              <div className="flex items-center gap-1.5 text-emerald-400">
+                <Unlock className="w-4 h-4" />
+                <span className="font-semibold">Candado Desbloqueado (Pastor)</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-amber-400">
+                <Lock className="w-4 h-4" />
+                <span className="font-semibold">Candado Pastoral Activo</span>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowSettingsModal(true)}
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold shadow-sm"
+            title="Ajustes de dispositivos, configuración Metered / TURN 4G y PIN pastoral"
+          >
+            <Settings className="w-4 h-4 text-amber-400" />
+            <span className="hidden sm:inline">Ajustes / 4G</span>
+          </button>
         </div>
       </header>
 
@@ -713,22 +765,104 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
         }`}>
           <form onSubmit={handleJoin} className="space-y-4">
             <div>
+              {/* Aviso de acceso directo para invitados con enlace */}
+              {initialRoomId && !isAdminAuthenticated && (
+                <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2.5 mb-3">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="leading-snug">
+                    <span className="font-bold text-white block">Acceso directo sin cuenta ni registro</span>
+                    <span className="text-[11px] text-emerald-100/90">
+                      No necesitas cuenta de Google ni contraseña. Solo escribe tu nombre abajo y entra a la sala.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Candado de Seguridad Pastoral Banner */}
+              <div className={`p-3 rounded-2xl border text-xs flex items-center justify-between gap-2.5 transition-all mb-3 ${
+                isAdminAuthenticated
+                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                  : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+              }`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`p-2 rounded-xl shrink-0 ${
+                    isAdminAuthenticated ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    {isAdminAuthenticated ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white flex items-center gap-1.5 flex-wrap">
+                      <span>{isAdminAuthenticated ? 'Candado Desbloqueado' : 'Acceso Libre para Hermanos'}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                        isAdminAuthenticated
+                          ? 'bg-emerald-950/80 border-emerald-600/50 text-emerald-300'
+                          : 'bg-slate-900 border-slate-700 text-amber-300'
+                      }`}>
+                        {isAdminAuthenticated ? 'Pastor Verificado' : 'Pastor requiere PIN'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 truncate">
+                      {isAdminAuthenticated
+                        ? 'Este dispositivo tiene privilegios de moderación.'
+                        : 'Entra directo sin cuenta; solo Pastor/Líder pide PIN.'}
+                    </p>
+                  </div>
+                </div>
+
+                {isAdminAuthenticated ? (
+                  <button
+                    type="button"
+                    onClick={handleLockAdmin}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                    title="Cerrar sesión de pastor para probar como invitado"
+                  >
+                    <Lock className="w-3 h-3 text-amber-400" />
+                    <span>Bloquear</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnteredPin('');
+                      setPinError(null);
+                      setShowAdminPinModal(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer shrink-0 shadow-sm"
+                  >
+                    <KeyRound className="w-3 h-3" />
+                    <span>PIN Pastor</span>
+                  </button>
+                )}
+              </div>
+
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
                   {isAdmin ? '👑 Modo Administrador' : 'Ingreso a la Reunión'}
                 </span>
-                <button
-                  type="button"
-                  onClick={handleToggleAdmin}
-                  className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isAdmin
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-semibold'
-                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{isAdmin ? 'Eres Administrador' : 'Ingresar como Admin'}</span>
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleToggleAdmin}
+                    className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isAdmin
+                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-semibold'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {isAdminAuthenticated ? (
+                      <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                    )}
+                    <span>
+                      {isAdmin
+                        ? 'Modo Pastor Activo'
+                        : isAdminAuthenticated
+                        ? 'Activar Modo Pastor'
+                        : 'Ingresar como Admin (PIN)'}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <h2 className="text-xl font-bold font-serif text-white mb-1">
@@ -758,14 +892,20 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
 
             {/* Church Role Selector */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                Tu Rol o Ministerio en la Iglesia:
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  Tu Rol o Ministerio en la Iglesia:
+                </label>
+                <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-400/80" />
+                  <span>Pastor y Líder protegidos</span>
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {(['member', 'pastor', 'leader', 'musician', 'guest'] as UserRole[]).map((r) => {
                   const info = ROLE_LABELS[r];
                   const isSelected = role === r;
-                  const isRestricted = (r === 'pastor' || r === 'leader') && !isAdminAuthenticated;
+                  const isRestrictedRole = r === 'pastor' || r === 'leader';
                   return (
                     <button
                       key={r}
@@ -778,7 +918,17 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                       }`}
                     >
                       <span className="truncate">{info.label}</span>
-                      {isRestricted && <Lock className="w-3 h-3 text-amber-400/70 ml-1 shrink-0" />}
+                      {isRestrictedRole && (
+                        isAdminAuthenticated ? (
+                          <span title="Desbloqueado con PIN" className="ml-1 shrink-0 flex items-center">
+                            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                          </span>
+                        ) : (
+                          <span title="Bloqueado con PIN Pastoral" className="ml-1 shrink-0 flex items-center">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                          </span>
+                        )
+                      )}
                     </button>
                   );
                 })}
@@ -806,6 +956,11 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                       {room.name} ({room.badge})
                     </option>
                   ))}
+                  {!PRESET_ROOMS.some((r) => r.id === roomId) && roomId !== 'sala-personalizada' && (
+                    <option value={roomId}>
+                      {roomName || roomId} (Enlace recibido)
+                    </option>
+                  )}
                   <option value="sala-personalizada">-- Otra Sala Personalizada --</option>
                 </select>
 
@@ -878,6 +1033,15 @@ export const Lobby: React.FC<LobbyProps> = ({ initialRoomId, initialIsAdmin = fa
                 <MessageCircle className="w-4 h-4 fill-white" />
                 <span>Compartir enlace por WhatsApp</span>
               </button>
+
+              {isPrivatePreview && (
+                <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 text-[11px] text-amber-200 leading-snug flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Aviso antes de compartir:</strong> Estás en una URL de vista previa de AI Studio (<code className="text-amber-300">ais-dev</code> / <code className="text-amber-300">ais-pre</code>), la cual muestra una pantalla de seguridad en inglés y pide cuenta de Google a otras personas. Para que los hermanos entren directo en español sin cuenta, pulsa el botón <strong>Deploy app</strong> (arriba a la derecha en AI Studio) para publicar en Cloud Run y comparte esa URL pública.
+                  </span>
+                </div>
+              )}
             </div>
           </form>
         </div>

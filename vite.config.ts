@@ -12,7 +12,7 @@ export default defineConfig(() => {
       },
     },
     define: {
-      'import.meta.env.VITE_APP_URL': JSON.stringify(process.env.APP_URL || 'https://ais-dev-z7w2er3egx4bkabein6isy-454915895099.us-west1.run.app'),
+      'import.meta.env.VITE_APP_URL': JSON.stringify(process.env.APP_URL || ''),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

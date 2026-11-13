@@ -13,7 +13,6 @@ import {
   BookOpen,
   PhoneOff,
   Settings,
-  Share2,
   Disc,
   Square,
 } from 'lucide-react';
@@ -33,7 +32,7 @@ interface ControlsBarProps {
   onToggleHandRaise: () => void;
   onSendReaction: (emoji: string) => void;
   onToggleSidebarTab: (tab: 'chat' | 'participants' | 'bible' | 'prayers' | 'hymns') => void;
-  onOpenInfo: () => void;
+  onOpenInfo?: () => void;
   onOpenSettings: () => void;
   onToggleRecording: () => void;
   onLeaveCall: () => void;
@@ -63,7 +62,6 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
   onToggleHandRaise,
   onSendReaction,
   onToggleSidebarTab,
-  onOpenInfo,
   onOpenSettings,
   onToggleRecording,
   onLeaveCall,
@@ -71,44 +69,36 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
   const [showReactionsMenu, setShowReactionsMenu] = useState(false);
 
   return (
-    <footer className="relative z-30 px-3 py-3 md:py-4 bg-slate-950/90 backdrop-blur-xl border-t border-slate-800/80 flex items-center justify-between gap-2 shadow-2xl">
-      {/* Left: Meeting quick info / share link */}
-      <div className="flex items-center gap-1.5 md:gap-2">
-        <button
-          onClick={onOpenInfo}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-slate-200 text-xs md:text-sm font-medium transition-colors"
-          title="Ver enlace y datos de la reunión"
-        >
-          <Share2 className="w-4 h-4 text-amber-400" />
-          <span className="hidden sm:inline">Invitar / Enlace</span>
-        </button>
+    <footer className="relative z-30 w-full bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 shadow-2xl">
+      {/* Horizontally scrollable bar on mobile with smooth swipe */}
+      <div className="w-full overflow-x-auto no-scrollbar scroll-smooth touch-pan-x flex items-center justify-between gap-3 px-3 py-2.5 md:py-3.5 max-w-7xl mx-auto">
+        {/* Left: Recording button (Recording of service/sermon) */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={onToggleRecording}
+            className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl border text-xs md:text-sm font-medium transition-colors shrink-0 ${
+              isRecording
+                ? 'bg-red-950/80 border-red-500 text-red-200'
+                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/60 text-slate-300'
+            }`}
+            title={isRecording ? 'Detener grabación local' : 'Grabar prédica/reunión'}
+          >
+            {isRecording ? (
+              <>
+                <Square className="w-3.5 h-3.5 fill-red-500 text-red-500 animate-pulse" />
+                <span className="inline text-xs">Grabando</span>
+              </>
+            ) : (
+              <>
+                <Disc className="w-4 h-4 text-slate-400" />
+                <span className="hidden sm:inline">Grabar</span>
+              </>
+            )}
+          </button>
+        </div>
 
-        {/* Recording button */}
-        <button
-          onClick={onToggleRecording}
-          className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs md:text-sm font-medium transition-colors ${
-            isRecording
-              ? 'bg-red-950/80 border-red-500 text-red-200'
-              : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/60 text-slate-300'
-          }`}
-          title={isRecording ? 'Detener grabación local' : 'Grabar prédica/reunión'}
-        >
-          {isRecording ? (
-            <>
-              <Square className="w-3.5 h-3.5 fill-red-500 text-red-500 animate-pulse" />
-              <span className="hidden md:inline">Grabando</span>
-            </>
-          ) : (
-            <>
-              <Disc className="w-4 h-4 text-slate-400" />
-              <span className="hidden md:inline">Grabar</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Center: Core Audio, Video, Screen, Hand, Reactions */}
-      <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3">
+        {/* Center: Core Audio, Video, Screen, Hand, Reactions, Leave Call */}
+        <div className="flex items-center gap-2 sm:gap-2.5 md:gap-3 shrink-0">
         {/* Microphone */}
         <button
           onClick={onToggleMic}
@@ -214,11 +204,11 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
       </div>
 
       {/* Right: Church Tools, Chat, Participants, Settings */}
-      <div className="flex items-center gap-1.5 md:gap-2">
+      <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
         {/* Church Ministry Tools (Biblia, Peticiones, Himnos) */}
         <button
           onClick={() => onToggleSidebarTab('bible')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs md:text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl border text-xs md:text-sm font-medium transition-colors shrink-0 ${
             activeSidebarTab === 'bible' || activeSidebarTab === 'prayers' || activeSidebarTab === 'hymns'
               ? 'bg-amber-500/20 border-amber-500/80 text-amber-300'
               : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/60 text-slate-200'
@@ -232,7 +222,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
         {/* Chat */}
         <button
           onClick={() => onToggleSidebarTab('chat')}
-          className={`relative p-2.5 rounded-xl border text-xs md:text-sm transition-colors ${
+          className={`relative p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border text-xs md:text-sm transition-colors shrink-0 ${
             activeSidebarTab === 'chat'
               ? 'bg-indigo-600/30 border-indigo-400 text-indigo-300'
               : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/60 text-slate-200'
@@ -250,7 +240,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
         {/* Participants */}
         <button
           onClick={() => onToggleSidebarTab('participants')}
-          className={`relative p-2.5 rounded-xl border text-xs md:text-sm transition-colors ${
+          className={`relative p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border text-xs md:text-sm transition-colors shrink-0 ${
             activeSidebarTab === 'participants'
               ? 'bg-indigo-600/30 border-indigo-400 text-indigo-300'
               : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/60 text-slate-200'
@@ -266,11 +256,12 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
         {/* Device Settings */}
         <button
           onClick={onOpenSettings}
-          className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+          className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors shrink-0"
           title="Configuración de audio y cámara"
         >
           <Settings className="w-4 h-4" />
         </button>
+      </div>
       </div>
     </footer>
   );

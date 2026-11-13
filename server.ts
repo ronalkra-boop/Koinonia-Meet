@@ -114,9 +114,32 @@ function cleanMeteredAppName(name: string): string {
   return cleaned;
 }
 
-const RAW_METERED_APP_NAME = (process.env.METERED_APP_NAME || '').trim();
-const METERED_APP_NAME = cleanMeteredAppName(RAW_METERED_APP_NAME);
-const METERED_API_KEY = (process.env.METERED_API_KEY || '').trim();
+let savedMeteredAppName = '';
+let savedMeteredApiKey = '';
+
+function loadSavedMeteredConfig() {
+  try {
+    if (fs.existsSync(TURN_STORAGE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TURN_STORAGE_FILE, 'utf-8'));
+      if (data && data.meteredApiKey) {
+        savedMeteredAppName = cleanMeteredAppName(data.meteredAppName || '');
+        savedMeteredApiKey = String(data.meteredApiKey || '').trim();
+      }
+    }
+  } catch (e) {}
+}
+loadSavedMeteredConfig();
+
+function getEffectiveMeteredAppName(): string {
+  if (savedMeteredAppName) return savedMeteredAppName;
+  return cleanMeteredAppName(process.env.METERED_APP_NAME || '');
+}
+
+function getEffectiveMeteredApiKey(): string {
+  if (savedMeteredApiKey) return savedMeteredApiKey;
+  return (process.env.METERED_API_KEY || '').trim();
+}
+
 const METERED_TTL_MS = 30 * 60 * 1000; // 30 minutos
 let meteredCache: { servers: IceServer[]; fetchedAt: number } = { servers: [], fetchedAt: 0 };
 let meteredInFlight: Promise<IceServer[]> | null = null;
@@ -124,26 +147,28 @@ let meteredLastFailureAt = 0;
 const METERED_RETRY_COOLDOWN_MS = 60 * 1000; // 1 minuto tras fallo
 
 async function refreshMeteredServers(): Promise<IceServer[]> {
-  if (!METERED_APP_NAME || !METERED_API_KEY) return [];
+  const appName = getEffectiveMeteredAppName();
+  const apiKey = getEffectiveMeteredApiKey();
+  if (!appName || !apiKey) return [];
   if (meteredInFlight) return meteredInFlight;
 
   meteredInFlight = (async () => {
     try {
-      if (METERED_API_KEY.includes(' ') || METERED_API_KEY.toLowerCase() === RAW_METERED_APP_NAME.toLowerCase()) {
+      if (apiKey.includes(' ') || (appName && apiKey.toLowerCase() === appName.toLowerCase())) {
         console.warn(
-          `[TURN Metered] Nota: METERED_API_KEY="${METERED_API_KEY}" parece ser un nombre en lugar de una API Key. ` +
+          `[TURN Metered] Nota: La API Key configurada ("${apiKey}") parece ser un nombre en lugar de una API Key. ` +
           'En el panel de Metered, ve a "TURN Server" y copia la clave alfanumérica que aparece en "API Key".'
         );
       }
 
-      const targetUrl = new URL(`https://${METERED_APP_NAME}.metered.live/api/v1/turn/credentials`);
-      targetUrl.searchParams.set('apiKey', METERED_API_KEY);
+      const targetUrl = new URL(`https://${appName}.metered.live/api/v1/turn/credentials`);
+      targetUrl.searchParams.set('apiKey', apiKey);
 
-      const res = await fetch(targetUrl.toString(), { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(targetUrl.toString(), { signal: AbortSignal.timeout(5000) });
       if (!res.ok) {
         if (res.status === 401 || res.status === 403 || res.status === 404) {
           throw new Error(
-            `HTTP ${res.status}: Verifica que la app '${METERED_APP_NAME}' exista en Metered y que la API Key sea correcta (Dashboard > TURN Server > API Key).`
+            `HTTP ${res.status}: Verifica que la app '${appName}' exista en Metered y que la API Key sea correcta (Dashboard > TURN Server > API Key).`
           );
         }
         throw new Error(`HTTP ${res.status}`);
@@ -152,7 +177,7 @@ async function refreshMeteredServers(): Promise<IceServer[]> {
       if (!Array.isArray(data) || data.length === 0) throw new Error('Respuesta de Metered vacía o inválida');
       meteredCache = { servers: data as IceServer[], fetchedAt: Date.now() };
       meteredLastFailureAt = 0;
-      console.log(`[TURN Metered] Credenciales actualizadas exitosamente (${data.length} servidores ICE para '${METERED_APP_NAME}')`);
+      console.log(`[TURN Metered] Credenciales actualizadas exitosamente (${data.length} servidores ICE para '${appName}')`);
       return meteredCache.servers;
     } catch (e) {
       meteredLastFailureAt = Date.now();
@@ -167,7 +192,9 @@ async function refreshMeteredServers(): Promise<IceServer[]> {
 }
 
 function getMeteredServersCached(): IceServer[] {
-  if (!METERED_APP_NAME || !METERED_API_KEY) return [];
+  const appName = getEffectiveMeteredAppName();
+  const apiKey = getEffectiveMeteredApiKey();
+  if (!appName || !apiKey) return [];
   const fresh = meteredCache.servers.length > 0 && Date.now() - meteredCache.fetchedAt < METERED_TTL_MS;
   if (!fresh && (!meteredLastFailureAt || Date.now() - meteredLastFailureAt > METERED_RETRY_COOLDOWN_MS)) {
     // Refresco en segundo plano sin bloquear el ingreso de los participantes
@@ -177,7 +204,7 @@ function getMeteredServersCached(): IceServer[] {
 }
 
 // Precalentar credenciales al arrancar el servidor
-if (METERED_APP_NAME && METERED_API_KEY) {
+if (getEffectiveMeteredAppName() && getEffectiveMeteredApiKey()) {
   refreshMeteredServers().catch(() => {});
   setInterval(refreshMeteredServers, METERED_TTL_MS).unref();
 }
@@ -226,13 +253,91 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/ice-servers', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  if (METERED_APP_NAME && METERED_API_KEY && meteredCache.servers.length === 0) {
+  if (getEffectiveMeteredAppName() && getEffectiveMeteredApiKey() && meteredCache.servers.length === 0) {
     await refreshMeteredServers().catch(() => {});
   }
   res.json({
     iceServers: getFullIceServers(),
     hasCustomTurn: hasAnyConfiguredTurn(),
   });
+});
+
+app.get('/api/metered-status', (req, res) => {
+  const appName = getEffectiveMeteredAppName();
+  const apiKey = getEffectiveMeteredApiKey();
+  const isInvalid = apiKey.includes(' ') || (appName && apiKey.toLowerCase() === appName.toLowerCase());
+  res.json({
+    configured: !!(appName && apiKey),
+    appName,
+    hasApiKey: !!apiKey,
+    isInvalidFormat: isInvalid,
+    iceServersCount: meteredCache.servers.length,
+    lastFailure: meteredLastFailureAt > 0,
+  });
+});
+
+app.post('/api/metered-config', async (req, res) => {
+  const { appName, apiKey } = req.body || {};
+  const cleanedAppName = cleanMeteredAppName(appName || '');
+  const trimmedKey = String(apiKey || '').trim();
+
+  if (!cleanedAppName || !trimmedKey) {
+    return res.status(400).json({ success: false, message: 'Se requiere el nombre de la app y la API Key de Metered.' });
+  }
+
+  if (trimmedKey.includes(' ') || (cleanedAppName && trimmedKey.toLowerCase() === cleanedAppName.toLowerCase())) {
+    return res.status(400).json({
+      success: false,
+      message: 'La API Key ingresada parece ser un nombre. En el panel de Metered, ve a "TURN Server" y copia la clave alfanumérica de "API Key".'
+    });
+  }
+
+  try {
+    const targetUrl = new URL(`https://${cleanedAppName}.metered.live/api/v1/turn/credentials`);
+    targetUrl.searchParams.set('apiKey', trimmedKey);
+    const testRes = await fetch(targetUrl.toString(), { signal: AbortSignal.timeout(6000) });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) {
+        return res.status(400).json({
+          success: false,
+          message: `Metered rechazó la clave (HTTP ${testRes.status}). Verifica tu API Key en Metered Dashboard > TURN Server > API Key.`
+        });
+      }
+      return res.status(400).json({ success: false, message: `Error de Metered (HTTP ${testRes.status})` });
+    }
+    const data = await testRes.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(400).json({ success: false, message: 'Metered devolvió una lista vacía de servidores.' });
+    }
+
+    // Guardar en memoria y en disco
+    savedMeteredAppName = cleanedAppName;
+    savedMeteredApiKey = trimmedKey;
+    meteredCache = { servers: data as IceServer[], fetchedAt: Date.now() };
+    meteredLastFailureAt = 0;
+
+    let existingData: any = {};
+    try {
+      if (fs.existsSync(TURN_STORAGE_FILE)) {
+        existingData = JSON.parse(fs.readFileSync(TURN_STORAGE_FILE, 'utf-8')) || {};
+      }
+    } catch {}
+    existingData.meteredAppName = cleanedAppName;
+    existingData.meteredApiKey = trimmedKey;
+    fs.writeFileSync(TURN_STORAGE_FILE, JSON.stringify(existingData, null, 2), 'utf-8');
+
+    console.log(`[TURN Metered] Configuración actualizada y verificada: ${data.length} servidores ICE para '${cleanedAppName}'`);
+    return res.json({
+      success: true,
+      message: `¡Conexión exitosa! Se activaron ${data.length} servidores TURN para '${cleanedAppName}'.`,
+      iceServersCount: data.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Error al conectar con Metered: ${err.message || 'Error desconocido'}`
+    });
+  }
 });
 
 app.post('/api/turn-config', (req, res) => {

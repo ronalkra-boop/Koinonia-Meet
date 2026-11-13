@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Share2, ExternalLink, MessageCircle, ShieldCheck } from 'lucide-react';
-import { getPublicMeetingUrl } from '../utils/urlHelper';
+import { X, Copy, Check, Share2, MessageCircle, ShieldCheck, AlertCircle } from 'lucide-react';
+import { getPublicMeetingUrl, isPrivateAiStudioPreview } from '../utils/urlHelper';
 
 interface MeetingInfoModalProps {
   roomId: string;
@@ -24,8 +24,9 @@ export const MeetingInfoModal: React.FC<MeetingInfoModalProps> = ({
 
   // Build clean public URL
   const currentUrl = getPublicMeetingUrl(roomId);
+  const isPrivatePreview = isPrivateAiStudioPreview();
 
-  const inviteMessage = `¡Paz del Señor hermanos! 🙏 Les invito a unirse a nuestra reunión de la iglesia: "${roomName}".\n\nPueden ingresar desde su celular o computadora haciendo clic aquí:\n${currentUrl}\n\n¡Dios les bendiga, les esperamos!`;
+  const inviteMessage = `¡Paz del Señor hermanos! 🙏 Les invito a unirse a nuestra reunión de la iglesia: "${roomName}".\n\nPueden ingresar directo desde su celular o computadora (sin cuenta ni registro) haciendo clic aquí:\n${currentUrl}\n\n¡Dios les bendiga, les esperamos!`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(currentUrl);
@@ -77,13 +78,22 @@ export const MeetingInfoModal: React.FC<MeetingInfoModalProps> = ({
           </div>
         </div>
 
-        {/* Google AI Studio Deployment Info */}
+        {/* Multi-Device Connection Guidance */}
         <div className="mb-3.5 p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-[11px] text-indigo-200 leading-relaxed">
-          <span className="font-semibold text-white block mb-1">ℹ️ Para invitar a celulares y otras personas:</span>
+          <span className="font-semibold text-white block mb-1">💡 Ingreso directo sin cuenta de Google:</span>
           <span>
-            En Google AI Studio, las direcciones temporales de desarrollo están protegidas. Para que otras personas puedan entrar sin que Google les muestre error 404, usa el botón <strong>"Share" (Compartir)</strong> en la esquina superior de Google AI Studio.
+            Los hermanos solo deben abrir este enlace en Chrome o Safari, escribir su nombre y entrar. No se solicita correo ni contraseña.
           </span>
         </div>
+
+        {isPrivatePreview && (
+          <div className="mb-3.5 p-3 rounded-2xl bg-amber-950/60 border border-amber-500/40 text-[11px] text-amber-200 leading-relaxed flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <span>
+              <strong>Estás en una URL de vista previa (<code className="text-amber-300">ais-dev</code> / <code className="text-amber-300">ais-pre</code>):</strong> Google AI Studio muestra una pantalla en inglés y pide cuenta de Google a personas externas. Pulsa <strong>Deploy app</strong> en AI Studio (acceso público en Cloud Run) y comparte esa URL final.
+            </span>
+          </div>
+        )}
 
         {/* Shareable Link Box */}
         <div className="mb-4">

@@ -677,10 +677,11 @@ export function useWebRTC({
   }, []);
 
   const drainCandidates = useCallback(async (pc: RTCPeerConnection, peerId: string) => {
+    if (!peerConnections.current.has(peerId)) return;
     const queue = candidateQueues.current.get(peerId) || [];
     while (queue.length > 0) {
       const candidateInit = queue.shift();
-      if (candidateInit) {
+      if (candidateInit && peerConnections.current.has(peerId)) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
         } catch (e) {
@@ -895,6 +896,17 @@ export function useWebRTC({
                   console.error(`[WebRTC] Error procesando oferta de ${senderId}:`, offerErr);
                 }
               } else if (signal.type === 'answer') {
+                if (!peerConnections.current.has(senderId)) {
+                  break;
+                }
+                // Si la conexión ya regresó a 'stable' o no está en 'have-local-offer',
+                // la respuesta ya fue procesada o es redundante; ignorarla de forma segura.
+                if (pc.signalingState !== 'have-local-offer') {
+                  console.log(
+                    `[WebRTC ${senderId}] Ignorando respuesta redundante (signalingState actual: ${pc.signalingState})`
+                  );
+                  break;
+                }
                 try {
                   await pc.setRemoteDescription(new RTCSessionDescription(signal));
                   await drainCandidates(pc, senderId);
